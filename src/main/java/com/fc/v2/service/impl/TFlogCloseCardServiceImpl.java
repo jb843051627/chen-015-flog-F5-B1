@@ -81,8 +81,13 @@ public class TFlogCloseCardServiceImpl implements ITFlogCloseCardService {
             note(id, "单据编号缺失，不允许流转");
             return null;
         }
-        // ④ 推进一档：状态由环节反推
+        // ④ 防连点：同一动作连续发起只认第一次，避免连点把环节推飞
         String action = remarkOf(remark);
+        if (isRepeated(r, action)) {
+            note(id, "同一动作连续发起，已忽略");
+            return null;
+        }
+        // ⑤ 推进一档：状态由环节反推
         r.setStage(st + 1);
         r.setStatus(statusOfStage(st + 1));
         r.setLastAction(action);
@@ -120,9 +125,9 @@ public class TFlogCloseCardServiceImpl implements ITFlogCloseCardService {
             note(id, "同一动作连续发起，已忽略");
             return null;
         }
-        // ④ 回退
-        r.setStage(0);
-        r.setStatus(statusOfStage(0));
+        // ④ 回退一档：状态由环节反推
+        r.setStage(st - 1);
+        r.setStatus(statusOfStage(st - 1));
         r.setLastAction(action);
         stamp(r);
         if (!persist(r)) {
@@ -137,6 +142,11 @@ public class TFlogCloseCardServiceImpl implements ITFlogCloseCardService {
     public boolean updateContent(Long id, String remark) {
         TFlogCloseCard r = (id == null) ? null : this.flogCloseCardMapper.selectById(id);
         if (r == null) {
+            return false;
+        }
+        // ① 已了断单据内容定型，不得再改（否则留档与实情对不上）
+        if (isTerminal(r)) {
+            note(id, "已办结单据不得再改内容");
             return false;
         }
         // ② 内容归一
@@ -154,6 +164,11 @@ public class TFlogCloseCardServiceImpl implements ITFlogCloseCardService {
     public boolean remove(Long id) {
         TFlogCloseCard r = (id == null) ? null : this.flogCloseCardMapper.selectById(id);
         if (r == null) {
+            return false;
+        }
+        // ① 已了断单据必须留档，不得删除（否则台账对不上）
+        if (isTerminal(r)) {
+            note(id, "已办结单据不得删除");
             return false;
         }
         // ② 删除前留痕
